@@ -1,7 +1,7 @@
-FROM php:7-apache
+FROM php:7.3-apache
 
 RUN apt-get update && apt-get install -y git unzip && apt-get clean
-
+RUN pecl install xdebug && docker-php-ext-enable xdebug
 
 ENV COMPOSER_ALLOW_SUPERUSER 1
 ENV COMPOSER_NO_INTERACTION 1

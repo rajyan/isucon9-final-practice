@@ -16,3 +16,9 @@ payment:
 
 bench:
 	cd bench && make && cp -av bin/bench_linux ../ansible/roles/benchmark/files/bench && cp -av bin/benchworker_linux ../ansible/roles/benchmark/files/benchworker
+
+up:
+	docker-compose -f webapp/docker-compose.yml -f webapp/docker-compose.php.yml up
+
+down:
+	docker-compose -f webapp/docker-compose.yml -f webapp/docker-compose.php.yml down
