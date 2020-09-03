@@ -17,6 +17,11 @@ payment:
 bench:
 	cd bench && make && cp -av bin/bench_linux ../ansible/roles/benchmark/files/bench && cp -av bin/benchworker_linux ../ansible/roles/benchmark/files/benchworker
 
+build:
+	docker-compose -f webapp/docker-compose.yml -f webapp/docker-compose.php.yml build \
+	--build-arg NEWRELIC_KEY=$NEWRELIC_KEY \
+	--build-arg NEWRELIC_APP_NAME=$NEWRELIC_APP_NAME
+
 up:
 	docker-compose -f webapp/docker-compose.yml -f webapp/docker-compose.php.yml up
 
