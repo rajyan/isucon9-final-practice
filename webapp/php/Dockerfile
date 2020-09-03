@@ -13,7 +13,7 @@ RUN echo 'deb http://apt.newrelic.com/debian/ newrelic non-free' | tee /etc/apt/
 RUN wget -O- https://download.newrelic.com/548C16BF.gpg | apt-key add -
 RUN apt-get update && apt-get -y install newrelic-php5 && NR_INSTALL_SILENT=1 newrelic-install install
 RUN sed -i \
-    -e "s/REPLACE_WITH_REAL_KEY/\"${NEWRELIC_KEY}\"/" \
+    -e "s/REPLACE_WITH_REAL_KEY/$NEWRELIC_KEY/" \
     -e "s/newrelic.appname[[:space:]]=[[:space:]].*/newrelic.appname=\"${NEWRELIC_APP_NAME}\"/" \
     -e '$anewrelic.distributed_tracing_enabled=true' \
         $(php -r "echo(PHP_CONFIG_FILE_SCAN_DIR);")/newrelic.ini
