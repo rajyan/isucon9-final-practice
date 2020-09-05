@@ -255,25 +255,16 @@ class Service
         return $user;
     }
 
-    public function getStationList(bool $isNobori){
+    public function getStationList(){
 
         $stations = apcu_fetch('stations', $success);
 
         if (!$success) {
             $sql = "SELECT * FROM `station_master` ORDER BY `distance`";
-            if ($isNobori) {
-                // if nobori reverse the order
-                $sql = $sql . " DESC";
-            }
-
             $stmt = $this->dbh->prepare($sql);
             $stmt->execute([]);
             $stations = $stmt->fetchAll(PDO::FETCH_ASSOC);
             apcu_add('stations', $stations);
-        }
-
-        if ($isNobori) {
-            return array_reverse($stations);
         }
 
         return $stations;
@@ -415,23 +406,16 @@ class Service
         $child = $request->getParam('child', 0);
 
         try {
-            $sql = "SELECT * FROM `station_master` WHERE `name`=?";
-            $sth = $this->dbh->prepare($sql);
-            $sth->execute([$fromName]);
-            $fromStation = $sth->fetch(PDO::FETCH_ASSOC);
-            if ($fromStation === false) {
-                return $response->withJson($this->errorResponse(['not found']), StatusCode::HTTP_BAD_REQUEST);
-            }
 
-            $sth = $this->dbh->prepare($sql);
-            $sth->execute([$toName]);
-            $toStation = $sth->fetch(PDO::FETCH_ASSOC);
-            if ($toStation === false) {
-                return $response->withJson($this->errorResponse(['not found']), StatusCode::HTTP_BAD_REQUEST);
-            }
+            $stations = $this->getStationList();
+            $stations = array_combine(array_column($stations, 'name'), $stations);
+            $fromStation = $stations[$fromName];
+            $toStation = $stations[$toName];
+
             $isNobori = false;
             if ($fromStation['distance'] > $toStation['distance']) {
                 $isNobori = true;
+                $stations = array_reverse($stations);
             }
 
             $usableTrainClassList = $this->getUsableTrainClassList($fromStation, $toStation);
@@ -459,14 +443,17 @@ class Service
                 return $response->withJson($this->errorResponse(['not found']), StatusCode::HTTP_BAD_REQUEST);
             }
 
-            $stations = $this->getStationList($isNobori);
+            $trainList = array_filter($trainList, function ($train) use ($stations, $fromStation, $toStation) {
+                return $fromStation['id'] <= $stations[$train['start_station']]['id']
+                    && $stations[$train['last_station']]['id'] <= $toStation['id'];
+            });
 
             $this->logger->info("From:", [$fromStation]);
             $this->logger->info("To:", [$toStation]);
 
             $names = array_column($trainList, 'train_name');
             $in  = rtrim(str_repeat('?,', count($names)), ',');
-            $sql = "SELECT `train_name`, `departure` FROM `train_timetable_master` WHERE `date`=? AND `station`=? AND `departure`>=? AND `train_name` IN ($in) ORDER BY `departure`  LIMIT 20";
+            $sql = "SELECT `train_name`, `departure` FROM `train_timetable_master` WHERE `date`=? AND `station`=? AND `departure`>=? AND `train_name` IN ($in) ORDER BY `departure`  LIMIT 10";
             $stmt = $this->dbh->prepare($sql);
             $stmt->execute(
                 array_merge([
