@@ -31,7 +31,7 @@ class Service
      */
     private $session;
 
-    private const AVAILABLE_DAYS = 10;
+    private const AVAILABLE_DAYS = 30;
 
     private const TRAIN_CLASS_MAP = [
         'express' => '最速',
