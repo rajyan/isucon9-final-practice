@@ -255,6 +255,30 @@ class Service
         return $user;
     }
 
+    public function getStationList(bool $isNobori){
+
+        $stations = apcu_fetch('stations', $success);
+
+        if (!$success) {
+            $sql = "SELECT * FROM `station_master` ORDER BY `distance`";
+            if ($isNobori) {
+                // if nobori reverse the order
+                $sql = $sql . " DESC";
+            }
+
+            $stmt = $this->dbh->prepare($sql);
+            $stmt->execute([]);
+            $stations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            apcu_add('stations', $stations);
+        }
+
+        if ($isNobori) {
+            return array_reverse($stations);
+        }
+
+        return $stations;
+    }
+
     private function makeReservationResponse(array $reservation): array
     {
         /**
@@ -435,19 +459,7 @@ class Service
                 return $response->withJson($this->errorResponse(['not found']), StatusCode::HTTP_BAD_REQUEST);
             }
 
-            $sql = "SELECT * FROM `station_master` ORDER BY `distance`";
-            if ($isNobori) {
-                // if nobori reverse the order
-                $sql = $sql . " DESC";
-            }
-
-            $stmt = $this->dbh->prepare($sql);
-            $stmt->execute([]);
-            $stations = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            if ($stations === false) {
-                return $response->withJson($this->errorResponse(['not found']), StatusCode::HTTP_BAD_REQUEST);
-            }
+            $stations = $this->getStationList($isNobori);
 
             $this->logger->info("From:", [$fromStation]);
             $this->logger->info("To:", [$toStation]);
