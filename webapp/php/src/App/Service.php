@@ -415,7 +415,10 @@ class Service
             $isNobori = false;
             if ($fromStation['distance'] > $toStation['distance']) {
                 $isNobori = true;
-                $stations = array_reverse($stations);
+                $maxId = end($stations)['id'];
+                foreach ($stations as &$s) {
+                    $s['id'] = $maxId + 1 - $s['id'];
+                }
             }
 
             $usableTrainClassList = $this->getUsableTrainClassList($fromStation, $toStation);
@@ -444,171 +447,131 @@ class Service
             }
 
             $trainList = array_filter($trainList, function ($train) use ($stations, $fromStation, $toStation) {
-                return $fromStation['id'] <= $stations[$train['start_station']]['id']
-                    && $stations[$train['last_station']]['id'] <= $toStation['id'];
+                return $stations[$train['start_station']]['id'] <= $fromStation['id']
+                    && $toStation['id'] <= $stations[$train['last_station']]['id'];
             });
 
             $this->logger->info("From:", [$fromStation]);
             $this->logger->info("To:", [$toStation]);
 
-            $names = array_column($trainList, 'train_name');
-            $in  = rtrim(str_repeat('?,', count($names)), ',');
-            $sql = "SELECT `train_name`, `departure` FROM `train_timetable_master` WHERE `date`=? AND `station`=? AND `departure`>=? AND `train_name` IN ($in) ORDER BY `departure`  LIMIT 10";
-            $stmt = $this->dbh->prepare($sql);
-            $stmt->execute(
-                array_merge([
-                    $date->format(self::DATE_SQL_FORMAT),
-                    $fromStation['name'],
-                    $date->format('G:i:s')
-                ], $names)
-            );
-            $selectedDeparture = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            if ($selectedDeparture === false) {
-                $this->logger->error($this->dbh->errorCode(), $this->dbh->errorInfo());
-                return $response->withJson($this->errorResponse(['failed to query']), StatusCode::HTTP_INTERNAL_SERVER_ERROR);
+            if (!empty($trainList)) {
+                $names = array_column($trainList, 'train_name');
+                $in = rtrim(str_repeat('?,', count($names)), ',');
+                $sql = "SELECT `train_name`, `departure` FROM `train_timetable_master` WHERE `date`=? AND `station`=? AND `departure`>=? AND `train_name` IN ($in) ORDER BY `departure`  LIMIT 10";
+                $stmt = $this->dbh->prepare($sql);
+                $stmt->execute(
+                    array_merge([
+                        $date->format(self::DATE_SQL_FORMAT),
+                        $fromStation['name'],
+                        $date->format('G:i:s')
+                    ], $names)
+                );
+                $selectedDeparture = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                if ($selectedDeparture === false) {
+                    $this->logger->error($this->dbh->errorCode(), $this->dbh->errorInfo());
+                    return $response->withJson($this->errorResponse(['failed to query']), StatusCode::HTTP_INTERNAL_SERVER_ERROR);
+                }
             }
 
-            $in  = rtrim(str_repeat('?,', count($selectedDeparture)), ',');
-            $sql = "SELECT `train_name`, `arrival` FROM `train_timetable_master` WHERE `date`=? AND `station`=? AND `train_name` IN ($in)";
-            $stmt = $this->dbh->prepare($sql);
-            $stmt->execute(
-                array_merge([
-                    $date->format(self::DATE_SQL_FORMAT),
-                    $toStation['name']
-                ], array_column($selectedDeparture, 'train_name'))
-            );
-            $selectedArrival = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            if ($selectedArrival === false) {
-                $this->logger->error($this->dbh->errorCode(), $this->dbh->errorInfo());
-                return $response->withJson($this->errorResponse(['failed to query']), StatusCode::HTTP_INTERNAL_SERVER_ERROR);
+            if (!empty($selectedDeparture)) {
+
+                $trainList = array_filter($trainList, function ($train) use ($selectedDeparture) {
+                    return in_array($train['train_name'], array_column($selectedDeparture, 'train_name'));
+                });
+
+                $in = rtrim(str_repeat('?,', count($selectedDeparture)), ',');
+                $sql = "SELECT `train_name`, `arrival` FROM `train_timetable_master` WHERE `date`=? AND `station`=? AND `train_name` IN ($in)";
+                $stmt = $this->dbh->prepare($sql);
+                $stmt->execute(
+                    array_merge([
+                        $date->format(self::DATE_SQL_FORMAT),
+                        $toStation['name']
+                    ], array_column($selectedDeparture, 'train_name'))
+                );
+                $selectedArrival = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                if ($selectedArrival === false) {
+                    $this->logger->error($this->dbh->errorCode(), $this->dbh->errorInfo());
+                    return $response->withJson($this->errorResponse(['failed to query']), StatusCode::HTTP_INTERNAL_SERVER_ERROR);
+                }
+
+                $selectedDeparture = array_combine(array_column($selectedDeparture, 'train_name'), array_column($selectedDeparture, 'departure'));
+                $selectedArrival = array_combine(array_column($selectedArrival, 'train_name'), array_column($selectedArrival, 'arrival'));
             }
-
-            $trainList = array_filter($trainList, function ($train) use ($selectedDeparture) {
-                return in_array($train['train_name'], array_column($selectedDeparture, 'train_name'));
-            });
-
-            $selectedDeparture = array_combine(array_column($selectedDeparture, 'train_name'), array_column($selectedDeparture, 'departure'));
-            $selectedArrival = array_combine(array_column($selectedArrival, 'train_name'), array_column($selectedArrival, 'arrival'));
 
             $trainSearchResponseList = [];
 
             foreach ($trainList as $k => $train) {
-                $isSeekedToFirstStation = false;
-                $isContainsOriginStation = false;
-                $isContainsDestStation = false;
-                $i = 0;
-                foreach ($stations as $s => $station) {
-                    // 駅リストを列車の発駅まで読み飛ばして頭出しをする
-                    // 列車の発駅以前は止まらないので無視して良い
-                    if (! $isSeekedToFirstStation) {
-                        if ($station['name'] === $train['start_station']) {
-                            $isSeekedToFirstStation = true;
-                        } else {
-                            continue;
-                        }
-                    }
-
-                    if ($station['id'] === $fromStation['id']) {
-                        // 発駅を経路中に持つ編成の場合フラグを立てる
-                        $isContainsOriginStation = true;
-                    }
-
-                    if ($station['id'] === $toStation['id']) {
-                        if ($isContainsOriginStation) {
-                            $isContainsDestStation = true;
-                            break;
-                        } else {
-                            // 出発駅より先に終点が見つかったとき
-                            $this->logger->info("なんかおかしい");
-                            break;
-                        }
-                    }
-
-                    if ($station['name'] === $train['last_station']) {
-                        // 駅が見つからないまま当該編成の終点に着いてしまったとき
-                        break;
-                    }
-                    $i++;
+                // 列車情報
+                try {
+                    $premium_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'premium', false);
+                    $premium_smoke_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'premium', true);
+                    $reserved_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'reserved', false);
+                    $reserved_smoke_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'reserved', true);
+                } catch (\PDOException $e) {
+                    return $response->withJson($this->errorResponse($e->getMessage()), StatusCode::HTTP_BAD_REQUEST);
                 }
 
-                if ($isContainsOriginStation && $isContainsDestStation) {
-                    // 列車情報
-
-                    try {
-                        $premium_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'premium', false);
-                        $premium_smoke_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'premium', true);
-                        $reserved_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'reserved', false);
-                        $reserved_smoke_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'reserved', true);
-                    } catch (\PDOException $e) {
-                        return $response->withJson($this->errorResponse($e->getMessage()), StatusCode::HTTP_BAD_REQUEST);
-                    }
-
-                    $premium_avail = $premium_smoke_avail = $reserved_avail = $reserved_smoke_avail = "○";
-                    if (count($premium_avail_seats) == 0) {
-                        $premium_avail = "×";
-                    } elseif (count($premium_avail_seats) < 10) {
-                        $premium_avail = "△";
-                    }
-
-                    if (count($premium_smoke_avail_seats) == 0) {
-                        $premium_smoke_avail = "×";
-                    } elseif (count($premium_smoke_avail_seats) < 10) {
-                        $premium_smoke_avail = "△";
-                    }
-
-                    if (count($reserved_avail_seats) == 0) {
-                        $reserved_avail = "×";
-                    } elseif (count($reserved_avail_seats) < 10) {
-                        $reserved_avail = "△";
-                    }
-
-                    if (count($reserved_smoke_avail_seats) == 0) {
-                        $reserved_smoke_avail = "×";
-                    } elseif (count($reserved_smoke_avail_seats) < 10) {
-                        $reserved_smoke_avail = "△";
-                    }
-
-                    $seatAvailability = [
-                        "premium" => $premium_avail,
-                        "premium_smoke" => $premium_smoke_avail,
-                        "reserved" => $reserved_avail,
-                        "reserved_smoke" => $reserved_smoke_avail,
-                        "non_reserved" => "○",
-                    ];
-
-                    // 料金計算
-                    $premiumFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "premium");
-                    $premiumFare = ($premiumFare * $adult) + (($premiumFare / 2) * $child);
-                    $reservedFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "reserved");
-                    $reservedFare = ($reservedFare * $adult) + (($reservedFare / 2) * $child);
-                    $nonReservedFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "non-reserved");
-                    $nonReservedFare = ($nonReservedFare * $adult) + (($nonReservedFare / 2) * $child);
-
-                    $fareInformation = [
-                        "premium" => (int)$premiumFare,
-                        "premium_smoke" => (int)$premiumFare,
-                        "reserved" => (int)$reservedFare,
-                        "reserved_smoke" => (int)$reservedFare,
-                        "non_reserved" => (int)$nonReservedFare,
-                    ];
-
-                    $trainSearchResponseList[] = [
-                        "train_class" => $train['train_class'],
-                        "train_name" => $train['train_name'],
-                        "start" => $train['start_station'],
-                        "last" => $train['last_station'],
-                        "departure" => $fromStation['name'],
-                        "arrival" => $toStation['name'],
-                        "departure_time" => $selectedDeparture[$train['train_name']],
-                        "arrival_time" => $selectedArrival[$train['train_name']],
-                        "seat_availability" => $seatAvailability,
-                        "seat_fare" => $fareInformation,
-                    ];
-
-                    if (count($trainSearchResponseList) >= 10) {
-                        break;
-                    }
+                $premium_avail = $premium_smoke_avail = $reserved_avail = $reserved_smoke_avail = "○";
+                if (count($premium_avail_seats) == 0) {
+                    $premium_avail = "×";
+                } elseif (count($premium_avail_seats) < 10) {
+                    $premium_avail = "△";
                 }
+
+                if (count($premium_smoke_avail_seats) == 0) {
+                    $premium_smoke_avail = "×";
+                } elseif (count($premium_smoke_avail_seats) < 10) {
+                    $premium_smoke_avail = "△";
+                }
+
+                if (count($reserved_avail_seats) == 0) {
+                    $reserved_avail = "×";
+                } elseif (count($reserved_avail_seats) < 10) {
+                    $reserved_avail = "△";
+                }
+
+                if (count($reserved_smoke_avail_seats) == 0) {
+                    $reserved_smoke_avail = "×";
+                } elseif (count($reserved_smoke_avail_seats) < 10) {
+                    $reserved_smoke_avail = "△";
+                }
+
+                $seatAvailability = [
+                    "premium" => $premium_avail,
+                    "premium_smoke" => $premium_smoke_avail,
+                    "reserved" => $reserved_avail,
+                    "reserved_smoke" => $reserved_smoke_avail,
+                    "non_reserved" => "○",
+                ];
+
+                // 料金計算
+                $premiumFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "premium");
+                $premiumFare = ($premiumFare * $adult) + (($premiumFare / 2) * $child);
+                $reservedFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "reserved");
+                $reservedFare = ($reservedFare * $adult) + (($reservedFare / 2) * $child);
+                $nonReservedFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "non-reserved");
+                $nonReservedFare = ($nonReservedFare * $adult) + (($nonReservedFare / 2) * $child);
+
+                $fareInformation = [
+                    "premium" => (int)$premiumFare,
+                    "premium_smoke" => (int)$premiumFare,
+                    "reserved" => (int)$reservedFare,
+                    "reserved_smoke" => (int)$reservedFare,
+                    "non_reserved" => (int)$nonReservedFare,
+                ];
+
+                $trainSearchResponseList[] = [
+                    "train_class" => $train['train_class'],
+                    "train_name" => $train['train_name'],
+                    "start" => $train['start_station'],
+                    "last" => $train['last_station'],
+                    "departure" => $fromStation['name'],
+                    "arrival" => $toStation['name'],
+                    "departure_time" => $selectedDeparture[$train['train_name']],
+                    "arrival_time" => $selectedArrival[$train['train_name']],
+                    "seat_availability" => $seatAvailability,
+                    "seat_fare" => $fareInformation,
+                ];
             }
         } catch (\PDOException $e) {
             $this->logger->error($e->getMessage(), [$e]);
