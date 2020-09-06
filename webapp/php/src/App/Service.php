@@ -351,13 +351,8 @@ class Service
 
     public function getStationsHandler(Request $request, Response $response, array $args)
     {
-        $sth = $this->dbh->prepare('SELECT * FROM `station_master` ORDER BY `id`');
-        $sth->execute();
-        $data = $sth->fetchAll(PDO::FETCH_ASSOC);
-        if ($data === false) {
-            return $response->withJson($this->errorResponse($sth->errorInfo()), StatusCode::HTTP_BAD_REQUEST);
-        }
 
+        $data = $this->getStationList();
         $station = [];
         foreach ($data as $elem) {
             unset($elem['distance']);
@@ -598,25 +593,11 @@ class Service
             return $response->withJson($this->errorResponse("列車が存在しません"), StatusCode::HTTP_NOT_FOUND);
         }
 
-        $sql = "SELECT * FROM `station_master` WHERE `name`=?";
-        $stmt = $this->dbh->prepare($sql);
-        $stmt->execute([
-            $fromName
-        ]);
-        $fromStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($fromStation === false) {
-            return $response->withJson($this->errorResponse("fromStation: no rows"), StatusCode::HTTP_BAD_REQUEST);
-        }
+        $stations = $this->getStationList();
+        $stations = array_combine(array_column($stations, 'name'), $stations);
 
-        $sql = "SELECT * FROM `station_master` WHERE `name`=?";
-        $stmt = $this->dbh->prepare($sql);
-        $stmt->execute([
-            $toName,
-        ]);
-        $toStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($toStation === false) {
-            return $response->withJson($this->errorResponse("toStation: no rows"), StatusCode::HTTP_BAD_REQUEST);
-        }
+        $fromStation = $stations[$fromName];
+        $toStation = $stations[$toName];
 
         $usableTrainClassList = $this->getUsableTrainClassList($fromStation, $toStation);
         $usable = in_array($train['train_class'], $usableTrainClassList);
@@ -662,19 +643,8 @@ class Service
                     return $response->withJson($this->errorResponse("failed to fetch seat_reservations"), StatusCode::HTTP_BAD_REQUEST);
                 }
 
-                $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-                $stmt->execute([$reservation['departure']]);
-                $departureStation = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($departureStation === false) {
-                    return $response->withJson($this->errorResponse("failed to fetch departure"), StatusCode::HTTP_BAD_REQUEST);
-                }
-
-                $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-                $stmt->execute([$reservation['arrival']]);
-                $arrivalStation = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($departureStation === false) {
-                    return $response->withJson($this->errorResponse("failed to fetch arrivalStation"), StatusCode::HTTP_BAD_REQUEST);
-                }
+                $departureStation = $stations[$reservation['departure']];
+                $arrivalStation = $stations[$reservation['arrival']];
 
                 if ($train['is_nobori']) {
                     if (($toStation['id'] < $arrivalStation['id']) && $fromStation['id'] <= $arrivalStation['id']) {
@@ -777,39 +747,14 @@ class Service
             return $response->withJson($this->errorResponse("列車データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
         }
 
+        $stations = $this->getStationList();
+        $stations = array_combine(array_column($stations, 'name'), $stations);
         // 列車自体の駅IDを求める
-        $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-        $stmt->execute([$tmas['start_station']]);
-        $departureStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($departureStation === false) {
-            $this->dbh->rollBack();
-            return $response->withJson($this->errorResponse("リクエストされた列車の始発駅データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
-        }
-        $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-        $stmt->execute([$tmas['last_station']]);
-        $arrivalStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($arrivalStation === false) {
-            $this->dbh->rollBack();
-            return $response->withJson($this->errorResponse("リクエストされた列車の終着駅データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
-        }
-
+        $departureStation = $stations[$tmas['start_station']];
+        $arrivalStation = $stations[$tmas['last_station']];
         // リクエストされた乗車区間の駅IDを求める
-        $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-        $stmt->execute([$payload['departure']]);
-        $fromStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($fromStation === false) {
-            $this->dbh->rollBack();
-            return $response->withJson($this->errorResponse("乗車駅データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
-        }
-
-        $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-        $stmt->execute([$payload['arrival']]);
-        $toStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($toStation === false) {
-            $this->dbh->rollBack();
-            return $response->withJson($this->errorResponse("降車駅データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
-        }
-
+        $fromStation = $stations[$payload['departure']];
+        $toStation = $stations[$payload['arrival']];
 
         switch ($payload['train_class']) {
             case '最速':
@@ -936,19 +881,8 @@ class Service
                                 return $response->withJson($this->errorResponse($this->dbh->errorInfo()), StatusCode::HTTP_BAD_REQUEST);
                             }
 
-                            $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-                            $departureStation = $stmt->execute([$reservation['departure']]);
-                            if ($departureStation === false) {
-                                $this->dbh->rollBack();
-                                return $response->withJson($this->errorResponse($this->dbh->errorInfo()), StatusCode::HTTP_BAD_REQUEST);
-                            }
-
-                            $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-                            $arrivalStation = $stmt->execute([$reservation['arrival']]);
-                            if ($arrivalStation === false) {
-                                $this->dbh->rollBack();
-                                return $response->withJson($this->errorResponse($this->dbh->errorInfo()), StatusCode::HTTP_BAD_REQUEST);
-                            }
+                            $departureStation = $stations[$reservation['departure']];
+                            $arrivalStation = $stations[$reservation['arrival']];
 
                             if ($train['is_nobori']) {
                                 if (($toStation['id'] < $arrivalStation['id']) && $fromStation['id'] <= $arrivalStation['id']) {
@@ -1086,22 +1020,10 @@ class Service
 
             // 予約情報の乗車区間の駅IDを求める
             // from
-            $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-            $stmt->execute([$reservation['departure']]);
-            $reservedFromStation = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($reservedFromStation === false) {
-                $this->dbh->rollBack();
-                return $response->withJson($this->errorResponse("予約情報に記載された列車の乗車駅データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
-            }
+            $reservedFromStation = $stations[$reservation['departure']];
 
             // to
-            $stmt = $this->dbh->prepare("SELECT * FROM `station_master` WHERE `name`=?");
-            $stmt->execute([$reservation['arrival']]);
-            $reservedToStation = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($reservedToStation === false) {
-                $this->dbh->rollBack();
-                return $response->withJson($this->errorResponse("予約情報に記載された列車の降車駅データがみつかりません"), StatusCode::HTTP_NOT_FOUND);
-            }
+            $reservedToStation = $stations[$reservation['arrival']];
 
             // 予約の区間重複判定
             $secdup = false;
