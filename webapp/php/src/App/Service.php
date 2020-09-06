@@ -989,7 +989,7 @@ class Service
                 break;
         }
         // 当該列車・列車名の予約一覧取得
-        $stmt = $this->dbh->prepare("SELECT * FROM `reservations` WHERE date=? AND `train_class`=? AND `train_name`=? FOR UPDATE");
+        $stmt = $this->dbh->prepare("SELECT * FROM `reservations` WHERE `date`=? AND `train_class`=? AND `train_name`=? FOR UPDATE");
         $stmt->execute([
             $date->format(self::DATE_SQL_FORMAT),
             $payload['train_class'],
