@@ -170,26 +170,11 @@ class Service
         return array_values($availableSeatMap);
     }
 
-    private function fareCalc(DateTime $date, int $depStation, int $destStation, string $trainClass, string $seatClass): int
+    private function fareCalc(DateTime $date, float $fromDist, float $toDist, string $trainClass, string $seatClass): int
     {
         // 料金計算メモ
         // 距離運賃(円) * 期間倍率(繁忙期なら2倍等) * 車両クラス倍率(急行・各停等) * 座席クラス倍率(プレミアム・指定席・自由席)
-        $sql = "SELECT * FROM `station_master` WHERE id=?";
-        $stmt = $this->dbh->prepare($sql);
-        $stmt->execute([$depStation]);
-        $fromStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($fromStation === false) {
-            throw new \PDOException('not found');
-        }
-
-        $stmt = $this->dbh->prepare($sql);
-        $stmt->execute([$destStation]);
-        $toStation = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($toStation === false) {
-            throw new \PDOException('not found');
-        }
-
-        $distFare = $this->getDistanceFare(abs($toStation['distance'] - $fromStation['distance']));
+        $distFare = $this->getDistanceFare(abs($fromDist - $toDist));
 
         // 期間・車両・座席クラス倍率
         $stmt = $this->dbh->prepare("SELECT * FROM `fare_master` WHERE `train_class`=? AND `seat_class`=? ORDER BY `start_date`");
@@ -545,11 +530,11 @@ class Service
                 ];
 
                 // 料金計算
-                $premiumFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "premium");
+                $premiumFare = $this->fareCalc($date, $fromStation['distance'], $toStation['distance'], $train['train_class'], "premium");
                 $premiumFare = ($premiumFare * $adult) + (($premiumFare / 2) * $child);
-                $reservedFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "reserved");
+                $reservedFare = $this->fareCalc($date, $fromStation['distance'], $toStation['distance'], $train['train_class'], "reserved");
                 $reservedFare = ($reservedFare * $adult) + (($reservedFare / 2) * $child);
-                $nonReservedFare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $train['train_class'], "non-reserved");
+                $nonReservedFare = $this->fareCalc($date, $fromStation['distance'], $toStation['distance'], $train['train_class'], "non-reserved");
                 $nonReservedFare = ($nonReservedFare * $adult) + (($nonReservedFare / 2) * $child);
 
                 $fareInformation = [
@@ -1177,13 +1162,13 @@ class Service
         try {
             switch ($payload['seat_class']) {
                 case 'premium':
-                    $fare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $payload['train_class'], 'premium');
+                    $fare = $this->fareCalc($date, $fromStation['distance'], $toStation['distance'], $payload['train_class'], 'premium');
                     break;
                 case 'reserved':
-                    $fare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $payload['train_class'], 'reserved');
+                    $fare = $this->fareCalc($date, $fromStation['distance'], $toStation['distance'], $payload['train_class'], 'reserved');
                     break;
                 case 'non-reserved':
-                    $fare = $this->fareCalc($date, $fromStation['id'], $toStation['id'], $payload['train_class'], 'non-reserved');
+                    $fare = $this->fareCalc($date, $fromStation['distance'], $toStation['distance'], $payload['train_class'], 'non-reserved');
                     break;
                 default:
                     $this->dbh->rollBack();
