@@ -351,7 +351,6 @@ class Service
 
     public function getStationsHandler(Request $request, Response $response, array $args)
     {
-
         $data = $this->getStationList();
         $station = [];
         foreach ($data as $elem) {
