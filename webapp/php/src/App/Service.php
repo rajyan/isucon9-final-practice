@@ -208,7 +208,6 @@ class Service
 
     private function getDistanceFare(float $origToDestDistance): int
     {
-
         $distanceFareList = apcu_fetch('distFare', $success);
 
         if (!$success) {
@@ -268,6 +267,27 @@ class Service
         }
 
         return $stations;
+    }
+
+    public function getSeatList(string $trainClass, int $carNumber = 0)
+    {
+        $seats = apcu_fetch('seats', $success);
+
+        if (!$success) {
+            $sql = "SELECT * FROM `seat_master` ORDER BY `train_class`, `car_number`, `seat_row`";
+            $stmt = $this->dbh->prepare($sql);
+            $stmt->execute([]);
+            $seatMaster = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $seats = [];
+            foreach ($seatMaster as $seat) {
+                $seats[$seat['train_class']][$seat['car_number']][] = $seat;
+            }
+
+            apcu_add('seats', $seats);
+        }
+
+        return $carNumber === 0 ? $seats[$trainClass] : $seats[$trainClass][$carNumber];
     }
 
     private function makeReservationResponse(array $reservation): array
@@ -335,17 +355,8 @@ class Service
         if ($rtn['seats'][0]['car_number'] === 0) {
             $rtn['seat_class'] = 'non-reserved';
         } else {
-            $stmt = $this->dbh->prepare("SELECT * FROM `seat_master` WHERE `train_class`=? AND `car_number`=? AND `seat_column`=? AND `seat_row`=?");
-            $stmt->execute([
-                $reservation['train_class'],
-                $rtn['car_number'],
-                $rtn['seats'][0]['seat_column'],
-                $rtn['seats'][0]['seat_row'],
-            ]);
-            $seat = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($seat === false) {
-                throw new \DomainException();
-            }
+            $seatList = $this->getSeatList($reservation['train_class'], $rtn['car_number']);
+            $seat = $seatList[0];
             $rtn['seat_class'] = $seat['seat_class'];
         }
 
@@ -691,22 +702,12 @@ class Service
 
         // 各号車の情報
         $simpleCarInformationList = [];
-        $i = 1;
-        while (true) {
-            $stmt = $this->dbh->prepare("SELECT * FROM `seat_master` WHERE `train_class`=? AND `car_number`=? ORDER BY `seat_row`, `seat_column` LIMIT 1");
-            $stmt->execute([
-                $trainClass,
-                $i,
-            ]);
-            $seat = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($seat === false) {
-                break;
-            }
+        $seatList = $this->getSeatList($trainClass);
+        foreach ($seatList as $i => $carSeatList) {
             $simpleCarInformationList[] = [
                 'car_number' => $i,
-                'seat_class' => $seat['seat_class'],
+                'seat_class' => $carSeatList[0]['seat_class'],
             ];
-            $i++;
         }
 
         $carInformation = [
