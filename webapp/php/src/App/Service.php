@@ -475,6 +475,14 @@ class Service
 
                 $selectedDeparture = array_combine(array_column($selectedDeparture, 'train_name'), array_column($selectedDeparture, 'departure'));
                 $selectedArrival = array_combine(array_column($selectedArrival, 'train_name'), array_column($selectedArrival, 'arrival'));
+                foreach ($trainList as &$train) {
+                    $train['departure'] = $selectedDeparture[$train['train_name']];
+                    $train['arrival'] = $selectedArrival[$train['train_name']];
+                }
+                usort($trainList, function ($a, $b) { return strtotime($a['departure']) - strtotime($b['departure']); });
+            }
+            else {
+                $trainList = [];
             }
 
             $trainSearchResponseList = [];
@@ -546,8 +554,8 @@ class Service
                     "last" => $train['last_station'],
                     "departure" => $fromStation['name'],
                     "arrival" => $toStation['name'],
-                    "departure_time" => $selectedDeparture[$train['train_name']],
-                    "arrival_time" => $selectedArrival[$train['train_name']],
+                    "departure_time" => $train['departure'],
+                    "arrival_time" => $train['arrival'],
                     "seat_availability" => $seatAvailability,
                     "seat_fare" => $fareInformation,
                 ];
