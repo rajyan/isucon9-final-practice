@@ -177,15 +177,24 @@ class Service
         $distFare = $this->getDistanceFare(abs($fromDist - $toDist));
 
         // 期間・車両・座席クラス倍率
-        $stmt = $this->dbh->prepare("SELECT * FROM `fare_master` WHERE `train_class`=? AND `seat_class`=? ORDER BY `start_date`");
-        $stmt->execute([
-            $trainClass,
-            $seatClass,
-        ]);
-        $fareList = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        if ($fareList === false) {
-            throw new \PDOException('not found');
+        $fareListAll = apcu_fetch('fareAll', $success);
+
+        if (!$success) {
+            $stmt = $this->dbh->prepare("SELECT * FROM `fare_master` ORDER BY `start_date`");
+            $stmt->execute([]);
+            $fareMaster = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if ($fareMaster === false) {
+                throw new \PDOException('not found');
+            }
+
+            $fareListAll = [];
+            foreach ($fareMaster as $fare) {
+                $fareListAll[$fare['train_class'] . '_' . $fare['seat_class']][] = $fare;
+            }
+            apcu_add('fareAll', $fareListAll);
         }
+
+        $fareList = $fareListAll[$trainClass . '_' . $seatClass];
 
         $selectedFare = $fareList[0];
         foreach ($fareList as $fare) {
@@ -199,9 +208,15 @@ class Service
 
     private function getDistanceFare(float $origToDestDistance): int
     {
-        $stmt = $this->dbh->prepare("SELECT `distance`,`fare` FROM `distance_fare_master` ORDER BY `distance`");
-        $stmt->execute([]);
-        $distanceFareList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $distanceFareList = apcu_fetch('distFare', $success);
+
+        if (!$success) {
+            $stmt = $this->dbh->prepare("SELECT `distance`,`fare` FROM `distance_fare_master` ORDER BY `distance`");
+            $stmt->execute([]);
+            $distanceFareList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            apcu_add('distFare', $distanceFareList);
+        }
 
         $lastDistance = 0.0;
         $lastFare = 0;
