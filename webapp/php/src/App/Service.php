@@ -64,6 +64,7 @@ class Service
         if (is_array($message)) {
             $message = join(" ", $message);
         }
+        newrelic_notice_error($message);
         return [
             'is_error' => true,
             'message' => $message,
