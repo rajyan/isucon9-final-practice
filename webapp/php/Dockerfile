@@ -15,9 +15,9 @@ RUN apt-get update && apt-get -y install newrelic-php5 && NR_INSTALL_SILENT=1 ne
 RUN sed -i \
     -e "s/REPLACE_WITH_REAL_KEY/$NEWRELIC_KEY/" \
     -e "s/newrelic.appname[[:space:]]=[[:space:]].*/newrelic.appname=\"${NEWRELIC_APP_NAME}\"/" \
-    -e '$anewrelic.transaction_tracer.explain_threshold=0' \
-    -e '$anewrelic.transaction_tracer.stack_trace_threshold=100' \
-    -e '$anewrelic.transaction_tracer.threshold=100'\
+    -e '$anewrelic.transaction_tracer.explain_threshold=200' \
+    -e '$anewrelic.transaction_tracer.stack_trace_threshold=200' \
+    -e '$anewrelic.transaction_tracer.threshold=200'\
     -e '$anewrelic.distributed_tracing_enabled=true' \
         $(php -r "echo(PHP_CONFIG_FILE_SCAN_DIR);")/newrelic.ini
 
