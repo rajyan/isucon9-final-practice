@@ -128,7 +128,7 @@ class Service
         $seatList = $this->getSeatList($train['train_class']);
 
         // すでに取られている予約を取得する
-        $query = "select sr.* from reservations as r join seat_reservations as sr on r.reservation_id=sr.reservation_id where r.`date`=? and r.train_class=? and r.train_name=?";
+        $query = "select sr.* from reservations as r join seat_reservations as sr on r.reservation_id=sr.reservation_id where r.date=? and r.train_class=? and r.train_name=?";
         $stmt = $this->dbh->prepare($query);
         $stmt->execute([
             (new \DateTime($train['date']))->format(self::DATE_SQL_FORMAT),
