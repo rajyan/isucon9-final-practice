@@ -147,9 +147,10 @@ class Service
         }
 
         $result = [];
-        $d = array_merge(...$seatList);
-        foreach ($d as $seat) {
-            $result[$seat['seat_class']][$seat['is_smoking_seat']][] = $seat;
+        foreach (array_merge(...$seatList) as $seat) {
+            if (!isset($seat['reserved'])) {
+                $result[$seat['seat_class']][$seat['is_smoking_seat']][] = $seat;
+            }
         }
 
         return $result;
