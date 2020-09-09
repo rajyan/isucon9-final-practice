@@ -131,7 +131,7 @@ class Service
         $query = "select sr.* from reservations as r join seat_reservations as sr on r.reservation_id=sr.reservation_id where r.date=? and r.train_class=? and r.train_name=?";
         $stmt = $this->dbh->prepare($query);
         $stmt->execute([
-            (new \DateTime($train['date']))->format(self::DATE_SQL_FORMAT),
+            (new \DateTime($train['date']))->setTimezone(new DateTimeZone("Asia/Tokyo"))->format(self::DATE_SQL_FORMAT),
             $train['train_class'],
             $train['train_name']
         ]);
@@ -143,7 +143,7 @@ class Service
         foreach ($seatReservationList as $seatReservation) {
             $colNum = $seatList[$seatReservation['car_number']][4]['seat_column'] === 'E' ? 5 : 4;
             $index = $colNum * ($seatReservation['seat_row'] - 1) + self::SEAT_COLUMN_MAP[$seatReservation['seat_column']];
-            $seatList[$seatReservation['car_number']][$index]['reserved'] = true;
+            $seatList[$seatReservation['car_number']][$index]['occupied'] = true;
         }
 
         if ($carNumFormat) {
@@ -152,7 +152,7 @@ class Service
 
         $result = [];
         foreach (array_merge(...$seatList) as $seat) {
-            if (!isset($seat['reserved'])) {
+            if (!isset($seat['occupied'])) {
                 $result[$seat['seat_class']][$seat['is_smoking_seat']][] = $seat;
             }
         }
