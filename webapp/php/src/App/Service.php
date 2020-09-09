@@ -274,7 +274,7 @@ class Service
         $seats = apcu_fetch('seats', $success);
 
         if (!$success) {
-            $sql = "SELECT * FROM `seat_master` ORDER BY `train_class`, `car_number`, `seat_row`";
+            $sql = "SELECT * FROM `seat_master` ORDER BY `seat_row`, `seat_column`";
             $stmt = $this->dbh->prepare($sql);
             $stmt->execute([]);
             $seatMaster = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -639,12 +639,7 @@ class Service
             return $response->withJson($this->errorResponse("invalid train_class"), StatusCode::HTTP_BAD_REQUEST);
         }
 
-        $stmt = $this->dbh->prepare("SELECT * FROM `seat_master` WHERE `train_class`=? AND `car_number`=? ORDER BY `seat_row`, `seat_column`");
-        $stmt->execute([
-            $trainClass,
-            $carNumber,
-        ]);
-        $seatList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $seatList = $this->getSeatList($trainClass, $carNumber);
 
         $seatInformationList = [];
         foreach ($seatList as $seat) {
