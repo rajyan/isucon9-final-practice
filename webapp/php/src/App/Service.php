@@ -37,7 +37,15 @@ class Service
         'express' => '最速',
         'semi_express' => '中間',
         'local' => '遅いやつ',
-        ];
+    ];
+
+    private const SEAT_COLUMN_MAP = [
+        'A' => 0,
+        'B' => 1,
+        'C' => 2,
+        'D' => 3,
+        'E' => 4,
+    ];
 
     private const DATE_SQL_FORMAT = 'Y-m-d';
 
@@ -120,7 +128,7 @@ class Service
         $seatList = $this->getSeatList($train['train_class']);
 
         // すでに取られている予約を取得する
-        $query = "SELECT * from reservations as r join seat_reservations as sr on r.reservation_id=sr.reservation_id where r.`date`=? and r.train_class=? and r.train_name=?";
+        $query = "select sr.* from reservations as r join seat_reservations as sr on r.reservation_id=sr.reservation_id where r.`date`=? and r.train_class=? and r.train_name=?";
         $stmt = $this->dbh->prepare($query);
         $stmt->execute([
             (new \DateTime($train['date']))->format(self::DATE_SQL_FORMAT),
@@ -134,8 +142,8 @@ class Service
 
         foreach ($seatReservationList as $seatReservation) {
             $colNum = $seatList[$seatReservation['car_number']][4]['seat_column'] === 'E' ? 5 : 4;
-            $index = $colNum * ($seatReservation['seat_row'] - 1) + (array_search($seatReservation['seat_column'], range('A', 'E')));
-            unset($seatList[$seatReservation['car_number']][$index]);
+            $index = $colNum * ($seatReservation['seat_row'] - 1) + self::SEAT_COLUMN_MAP[$seatReservation['seat_column']];
+            $seatList[$seatReservation['car_number']][$index]['reserved'] = true;
         }
 
         $result = [];
@@ -960,7 +968,7 @@ class Service
                 $seatList = $this->getSeatList($payload['train_class'], $payload['car_number']);
                 $colNum = $seatList[4]['seat_column'] === 'E' ? 5 : 4;
                 foreach ($payload['seats'] as $z) {
-                    $index = $colNum * ($z['row'] - 1) + (array_search($z['column'], range('A', 'E')));
+                    $index = $colNum * ($z['row'] - 1) + self::SEAT_COLUMN_MAP[$z['column']];
                     $valSeat = [];
                     if ($index < count($seatList)) {
                         $valSeat = $seatList[$index];
