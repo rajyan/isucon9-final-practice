@@ -28,7 +28,6 @@ up:
 down:
 	docker-compose -f webapp/docker-compose.yml -f webapp/docker-compose.php.yml down
 
-reset-db:
+db:
 	docker rm webapp_mysql_1
 	docker volume rm webapp_mysql
-	
