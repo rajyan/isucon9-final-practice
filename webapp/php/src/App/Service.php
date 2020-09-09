@@ -1296,10 +1296,11 @@ class Service
                 $payment_api = Environment::get('PAYMENT_API', 'http://payment:5000');
                 $http_client = new Client();
                 try {
-                    $r = $http_client->delete($payment_api . sprintf("/payment/%s", $reservation['payment_id']), [
+                    $promise = $http_client->deleteAsync($payment_api . sprintf("/payment/%s", $reservation['payment_id']), [
                         'json' => $payInfo,
                         'timeout' => 10,
                     ]);
+                    $r = $promise->wait();
                 } catch (RequestException $e) {
                     return $response->withJson($this->errorResponse("HTTP DELETEに失敗しました"), StatusCode::HTTP_BAD_REQUEST);
                 }
@@ -1307,7 +1308,6 @@ class Service
                     $this->dbh->rollBack();
                     return $response->withJson($this->errorResponse("決済に失敗しました。支払いIDが間違っている可能性があります"), StatusCode::HTTP_BAD_REQUEST);
                 }
-                $output = json_decode($r->getBody());
                 break;
             default:
                 // pass(requesting状態のものはpayment_id無いので叩かない)
@@ -1330,8 +1330,7 @@ class Service
         }
         $this->dbh->commit();
 
-        # TYPO cancel
-        return $response->withJson($this->messageResponse('cancell complete'), StatusCode::HTTP_OK);
+        return $response->withJson($this->messageResponse('cancel complete'), StatusCode::HTTP_OK);
     }
 
     public function getAuthHandler(Request $request, Response $response, array $args)
