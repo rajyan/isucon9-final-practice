@@ -31,7 +31,7 @@ class Service
      */
     private $session;
 
-    private const AVAILABLE_DAYS = 30;
+    private const AVAILABLE_DAYS = 50;
 
     private const TRAIN_CLASS_MAP = [
         'express' => '最速',
@@ -122,7 +122,7 @@ class Service
         return array_values($usable);
     }
 
-    private function getAvailableSeats(array $train): array
+    private function getAvailableSeats(array $train, bool $carNumFormat = false): array
     {
         // 全ての座席を取得する
         $seatList = $this->getSeatList($train['train_class']);
@@ -144,6 +144,10 @@ class Service
             $colNum = $seatList[$seatReservation['car_number']][4]['seat_column'] === 'E' ? 5 : 4;
             $index = $colNum * ($seatReservation['seat_row'] - 1) + self::SEAT_COLUMN_MAP[$seatReservation['seat_column']];
             $seatList[$seatReservation['car_number']][$index]['reserved'] = true;
+        }
+
+        if ($carNumFormat) {
+            return $seatList;
         }
 
         $result = [];
@@ -833,9 +837,10 @@ class Service
                     return $response->withJson($this->errorResponse("invalid train_class"), StatusCode::HTTP_BAD_REQUEST);
                 }
 
-                for ($carnum = 1; $carnum <= 16; $carnum++) {
+                $availableSeatsByCar = $this->getAvailableSeats($payload, true);
+
+                foreach ($availableSeatsByCar as $carNum => $seatList) {
                     // 指定した車両内の座席のうち座席クラス等の条件に一致するもののみ抽出
-                    $seatList = $this->getSeatList($payload['train_class'], $carnum);
                     $seatList = array_filter($seatList, function ($seat) use ($payload) {
                        return $seat['seat_class'] === $payload['seat_class'] ?? (!isset($payload['is_smoking_seat']) || $seat['is_smoking_seat'] == $payload['is_smoking_seat']);
                     });
@@ -843,64 +848,6 @@ class Service
                     if (count($seatList) == 0) {
                         // 条件を満たす座席がない車両だったので次へ
                         continue;
-                    }
-
-                    $seatInformationList = [];
-                    foreach ($seatList as $seat) {
-                        $s = [
-                            'row' => $seat['seat_row'],
-                            'column' => $seat['seat_column'],
-                            'class' => $seat['seat_class'],
-                            'is_smoking_seat' => (bool) $seat['is_smoking_seat'],
-                            'is_occupied' => false,
-                        ];
-                        $stmt = $this->dbh->prepare("SELECT s.* FROM `seat_reservations` s, `reservations` r WHERE r.`date` =? AND r.`train_class` =? AND r.`train_name` =? AND `car_number` =? AND `seat_row` =? AND `seat_column` =? FOR UPDATE");
-                        $stmt->execute([
-                            $date->format(self::DATE_SQL_FORMAT),
-                            $seat['train_class'],
-                            $payload['train_name'],
-                            $seat['car_number'],
-                            $seat['seat_row'],
-                            $seat['seat_class'],
-                        ]);
-                        $seatReservationList = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                        if ($seatReservationList === false) {
-                            $this->dbh->rollBack();
-                            return $response->withJson($this->errorResponse($this->dbh->errorInfo()), StatusCode::HTTP_BAD_REQUEST);
-                        }
-                        foreach ($seatReservationList as $seatReservation) {
-                            $stmt = $this->dbh->prepare("SELECT * FROM `reservations` WHERE `reservation_id` =? FOR UPDATE");
-                            $stmt->execute([
-                                $seatReservation['reservation_id']
-                            ]);
-                            $reservation = $stmt->fetch(PDO::FETCH_ASSOC);
-                            if ($reservation === false) {
-                                $this->dbh->rollBack();
-                                return $response->withJson($this->errorResponse($this->dbh->errorInfo()), StatusCode::HTTP_BAD_REQUEST);
-                            }
-
-                            $departureStation = $stations[$reservation['departure']];
-                            $arrivalStation = $stations[$reservation['arrival']];
-
-                            if ($train['is_nobori']) {
-                                if (($toStation['id'] < $arrivalStation['id']) && $fromStation['id'] <= $arrivalStation['id']) {
-                                    // pass
-                                } elseif (($toStation['id'] >= $departureStation['id']) && $fromStation['id'] > $departureStation['id']) {
-                                    // pass
-                                } else {
-                                    $s['is_occupied'] = true;
-                                }
-                            } else {
-                                if (($fromStation['id'] < $departureStation['id']) && $toStation['id'] <= $departureStation['id']) {
-                                    // pass
-                                } elseif (($fromStation['id'] >= $arrivalStation['id']) && $toStation['id'] > $arrivalStation['id']) {
-                                    // pass
-                                } else {
-                                    $s['is_occupied'] = true;
-                                }
-                            }
-                        }
-                        $seatInformationList[] = $s;
                     }
 
                     // 曖昧予約席とその他の候補席を選出
@@ -916,14 +863,14 @@ class Service
                     $i = 0;
                     $vagueSeat = [];
                     $candidateSeats = [];
-                    foreach ($seatInformationList as $seat) {
-                        if (empty($vagueSeat) && ($seat['column'] == $payload['Column']) && (!$seat['is_occupied']) && $vague) {
-                            $vagueSeat['row'] = $seat['row'];
-                            $vagueSeat['column'] = $seat['column'];
-                        } elseif (!$seat['is_occupied'] && ($i < $seatNum)) {
-                            $candidateSeats[] = [
-                              'row' => $seat['row'],
-                              'column'  => $seat['column'],
+                    foreach ($seatList as $seat) {
+                        if (empty($vagueSeat) && ($seat['seat_column'] == $payload['Column']) && $vague) {
+                            $vagueSeat['row'] = $seat['seat_row'];
+                            $vagueSeat['column'] = $seat['seat_column'];
+                        } elseif ($i < $seatNum) {
+                            $candidateSeats[$seat['seat_row']][] = [
+                              'row' => $seat['seat_row'],
+                              'column'  => $seat['seat_column'],
                             ];
                             $i++;
                         }
@@ -946,7 +893,7 @@ class Service
                         // fmt.Println("-----------------")
                         // fmt.Printf("現在検索中の車両: %d号車, リクエスト座席数: %d, 予約できそうな座席数: %d, 不足数: %d\n", carnum, req.Adult+req.Child, len(req.Seats), req.Adult+req.Child-len(req.Seats))
                         // fmt.Println("リクエストに対して座席数が不足しているため、次の車両を検索します。")
-                        if ($carnum === 16) {
+                        if ($carNum === 16) {
                             // fmt.Println("この新幹線にまとめて予約できる席数がなかったから検索をやめるよ")
                             $payload['seats'] = [];
                             break;
@@ -955,7 +902,7 @@ class Service
                     else {
                         // fmt.Println("予約情報に追加したよ")
                         $payload['seats'] = array_slice($payload['seats'], 0, ($payload['adult'] + $payload['child']));
-                        $payload['car_number'] = $carnum;
+                        $payload['car_number'] = $carNum;
                         break;
                     }
                 }
