@@ -990,18 +990,12 @@ class Service
                 // no break
             default:
                 // 座席情報のValidate
+                $alphabet = range('A', 'E');
+                $seatList = $this->getSeatList($payload['train_class'], $payload['car_number']);
+                $colNum = $seatList[4]['seat_column'] === 'E' ? 5 : 4;
                 foreach ($payload['seats'] as $z) {
-                    $stmt = $this->dbh->prepare("SELECT * FROM `seat_master` WHERE `train_class` =? AND `car_number` =? AND `seat_column` =? AND `seat_row` =? AND `seat_class` =?");
-                    $stmt->execute([
-                        $payload['train_class'],
-                        $payload['car_number'],
-                        $z['column'],
-                        $z['row'],
-                        $payload['seat_class'],
-                    ]);
-                    $seatList = $stmt->fetch(PDO::FETCH_ASSOC);
-                    if ($seatList === false) {
-                        $this->dbh->rollBack();
+                    $valSeat = $seatList[$colNum * ($z['row'] - 1) + (array_search($z['column'], $alphabet))];
+                    if ($z['row'] != $valSeat['seat_row'] || $z['column'] !== $valSeat['seat_column']) {
                         return $response->withJson($this->errorResponse("リクエストされた座席情報は存在しません。号車・喫煙席・座席クラスなど組み合わせを見直してください"), StatusCode::HTTP_BAD_REQUEST);
                     }
                 }
