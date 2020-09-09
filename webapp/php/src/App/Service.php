@@ -895,14 +895,12 @@ class Service
                     }
 
                     // 曖昧予約席とその他の候補席を選出
-                    $reserved = false;
-                    $vargue = true;
-                    $seatnum = ($payload['adult'] + $payload['child'] -1); // 予約する座席の合計数, 全体の人数からあいまい指定席分を引いておく
+                    $vague = true;
+                    $seatNum = ($payload['adult'] + $payload['child'] - 1); // 予約する座席の合計数, 全体の人数からあいまい指定席分を引いておく
                     // A/B/C/D/Eを指定しなければ、空いている適当な指定席を取るあいまいモード
                     if ($payload['Column'] === "") {
-                        $seatnum = ($payload['adult'] + $payload['child']); // あいまい指定せず大人＋小人分の座席を取る
-                        $reserved = false; // dummy
-                        $vargue = false;   // dummy
+                        $seatNum = ($payload['adult'] + $payload['child']); // あいまい指定せず大人＋小人分の座席を取る
+                        $vague = false;
                     }
 
                     // シート分だけ回して予約できる席を検索
@@ -910,10 +908,10 @@ class Service
                     $vagueSeat = [];
                     $candidateSeats = [];
                     foreach ($seatInformationList as $seat) {
-                        if (($seat['column'] == $payload['Column']) && (! (bool) $seat['is_occupied']) && (! $reserved) && ($vargue)) {
+                        if (empty($vagueSeat) && ($seat['column'] == $payload['Column']) && (!$seat['is_occupied']) && $vague) {
                             $vagueSeat['row'] = $seat['row'];
                             $vagueSeat['column'] = $seat['column'];
-                        } elseif ((! (bool) $seat['is_occupied']) && ($i < $seatnum)) {
+                        } elseif (!$seat['is_occupied'] && ($i < $seatNum)) {
                             $candidateSeats[] = [
                               'row' => $seat['row'],
                               'column'  => $seat['column'],
@@ -923,7 +921,7 @@ class Service
                     }
 
                     // あいまい席が見つかり、予約できそうだった
-                    if ($vargue === true && $reserved === true) {
+                    if ($vague === true) {
                         $payload['seats'][] = $vagueSeat;
                     }
                     //  候補席があった
@@ -933,7 +931,7 @@ class Service
                         }
                     }
 
-                    if (count($payload['seats']) < ($payload['adult'] = $payload['child'])) {
+                    if (count($payload['seats']) < ($payload['adult'] + $payload['child'])) {
                         // リクエストに対して席数が足りてない
                         // 次の号車にうつしたい
                         // fmt.Println("-----------------")
@@ -945,8 +943,7 @@ class Service
                             break;
                         }
                     }
-                    // fmt.Printf("空き実績: %d号車 シート:%v 席数:%d\n", carnum, req.Seats, len(req.Seats))
-                    if (count($payload['seats']) >= ($payload['adult'] + $payload['child'])) {
+                    else {
                         // fmt.Println("予約情報に追加したよ")
                         $payload['seats'] = array_slice($payload['seats'], 0, ($payload['adult'] + $payload['child']));
                         $payload['car_number'] = $carnum;
