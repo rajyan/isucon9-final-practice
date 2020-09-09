@@ -31,7 +31,7 @@ class Service
      */
     private $session;
 
-    private const AVAILABLE_DAYS = 50;
+    private const AVAILABLE_DAYS = 100;
 
     private const TRAIN_CLASS_MAP = [
         'express' => '最速',
@@ -837,12 +837,12 @@ class Service
                     return $response->withJson($this->errorResponse("invalid train_class"), StatusCode::HTTP_BAD_REQUEST);
                 }
 
-                $availableSeatsByCar = $this->getAvailableSeats($payload, true);
+                $seatsByCar = $this->getAvailableSeats($payload, true);
 
-                foreach ($availableSeatsByCar as $carNum => $seatList) {
+                foreach ($seatsByCar as $carNum => $seatList) {
                     // 指定した車両内の座席のうち座席クラス等の条件に一致するもののみ抽出
                     $seatList = array_filter($seatList, function ($seat) use ($payload) {
-                       return $seat['seat_class'] === $payload['seat_class'] ?? (!isset($payload['is_smoking_seat']) || $seat['is_smoking_seat'] == $payload['is_smoking_seat']);
+                       return !isset($seat['occupied']) && $seat['seat_class'] === $payload['seat_class'] ?? (!isset($payload['is_smoking_seat']) || $seat['is_smoking_seat'] == $payload['is_smoking_seat']);
                     });
 
                     if (count($seatList) == 0) {
@@ -867,7 +867,7 @@ class Service
                         if (empty($vagueSeat) && ($seat['seat_column'] == $payload['Column']) && $vague) {
                             $vagueSeat['row'] = $seat['seat_row'];
                             $vagueSeat['column'] = $seat['seat_column'];
-                        } elseif ($i < $seatNum) {
+                        } else {
                             $candidateSeats[$seat['seat_row']][] = [
                               'row' => $seat['seat_row'],
                               'column'  => $seat['seat_column'],
@@ -878,16 +878,13 @@ class Service
 
                     // あいまい席が見つかり、予約できそうだった
                     if ($vague === true) {
+                        if (empty($vagueSeat)) {
+                            continue;
+                        }
                         $payload['seats'][] = $vagueSeat;
                     }
-                    //  候補席があった
-                    if ($i > 0) {
-                        foreach ($candidateSeats as $c) {
-                            $payload['seats'][] = $c;
-                        }
-                    }
 
-                    if (count($payload['seats']) < ($payload['adult'] + $payload['child'])) {
+                    if ($i < $seatNum) {
                         // リクエストに対して席数が足りてない
                         // 次の号車にうつしたい
                         // fmt.Println("-----------------")
@@ -900,8 +897,13 @@ class Service
                         }
                     }
                     else {
+
+                        usort($candidateSeats, function ($l, $r) {
+                            return count($r) - count($l);
+                        });
+
                         // fmt.Println("予約情報に追加したよ")
-                        $payload['seats'] = array_slice($payload['seats'], 0, ($payload['adult'] + $payload['child']));
+                        $payload['seats'] = array_slice(array_merge($payload['seats'], ...$candidateSeats), 0, ($payload['adult'] + $payload['child']));
                         $payload['car_number'] = $carNum;
                         break;
                     }
