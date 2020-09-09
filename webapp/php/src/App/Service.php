@@ -114,49 +114,18 @@ class Service
         return array_values($usable);
     }
 
-    private function getAvailableSeats(array $train, array $fromStation, array $toStation, string $seatClass, bool $isSmokingSeat): array
+    private function getAvailableSeats(array $train): array
     {
         // 全ての座席を取得する
-        $stmt = $this->dbh->prepare("SELECT * FROM seat_master WHERE train_class=? AND seat_class=? AND is_smoking_seat=?;");
-        $stmt->execute([
-            $train['train_class'],
-            $seatClass,
-            $isSmokingSeat,
-        ]);
-        $seatList = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        if ($seatList === false) {
-            throw new \PDOException("not found");
-        }
-        $availableSeatMap = [];
-        foreach ($seatList as $k => $seat) {
-            $key = sprintf("%d_%d_%s", $seat['car_number'], $seat['seat_row'], $seat['seat_column']);
-            $availableSeatMap[$key] = $seat;
-        }
+        $seatList = $this->getSeatList($train['train_class']);
 
         // すでに取られている予約を取得する
-        $query = "SELECT `sr`.`reservation_id`, `sr`.`car_number`, `sr`.`seat_row`, `sr`.`seat_column` " .
-            "FROM `seat_reservations` sr, `reservations` r, `seat_master` s, `station_master` std, `station_master` sta " .
-            "WHERE " .
-            "r.reservation_id=sr.reservation_id AND " .
-            "s.train_class=r.train_class AND " .
-            "s.car_number=sr.car_number AND " .
-            "s.seat_column=sr.seat_column AND " .
-            "s.seat_row=sr.seat_row AND " .
-            "std.name=r.departure AND " .
-            "sta.name=r.arrival ";
-        if ($train['is_nobori']) {
-            $query .= "AND ((sta.id < ? AND ? <= std.id) OR (sta.id < ? AND ? <= std.id) OR (? < sta.id AND std.id < ?))";
-        } else {
-            $query .= "AND ((std.id <= ? AND ? < sta.id) OR (std.id <= ? AND ? < sta.id) OR (sta.id < ? AND ? < std.id))";
-        }
+        $query = "SELECT * from reservations as r join seat_reservations as sr on r.reservation_id=sr.reservation_id where r.`date`=? and r.train_class=? and r.train_name=?";
         $stmt = $this->dbh->prepare($query);
         $stmt->execute([
-            $fromStation['id'],
-            $fromStation['id'],
-            $toStation['id'],
-            $toStation['id'],
-            $fromStation['id'],
-            $toStation['id'],
+            (new \DateTime($train['date']))->format(self::DATE_SQL_FORMAT),
+            $train['train_class'],
+            $train['train_name']
         ]);
         $seatReservationList = $stmt->fetchAll(PDO::FETCH_ASSOC);
         if ($seatReservationList === false) {
@@ -164,11 +133,18 @@ class Service
         }
 
         foreach ($seatReservationList as $seatReservation) {
-            $key = sprintf("%d_%d_%s", $seatReservation['car_number'], $seatReservation['seat_row'], $seatReservation['seat_column']);
-            unset($availableSeatMap[$key]);
+            $colNum = $seatList[$seatReservation['car_number']][4]['seat_column'] === 'E' ? 5 : 4;
+            $index = $colNum * ($seatReservation['seat_row'] - 1) + (array_search($seatReservation['seat_column'], range('A', 'E')));
+            unset($seatList[$seatReservation['car_number']][$index]);
         }
 
-        return array_values($availableSeatMap);
+        $result = [];
+        $d = array_merge(...$seatList);
+        foreach ($d as $seat) {
+            $result[$seat['seat_class']][$seat['is_smoking_seat']][] = $seat;
+        }
+
+        return $result;
     }
 
     private function fareCalc(DateTime $date, float $fromDist, float $toDist, string $trainClass, string $seatClass): int
@@ -517,10 +493,11 @@ class Service
             foreach ($trainList as $k => $train) {
                 // 列車情報
                 try {
-                    $premium_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'premium', false);
-                    $premium_smoke_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'premium', true);
-                    $reserved_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'reserved', false);
-                    $reserved_smoke_avail_seats = $this->getAvailableSeats($train, $fromStation, $toStation, 'reserved', true);
+                    $seatData = $this->getAvailableSeats($train);
+                    $premium_avail_seats = $seatData['premium'][0] ?? [];
+                    $premium_smoke_avail_seats = $seatData['premium'][1] ?? [];
+                    $reserved_avail_seats = $seatData['reserved'][0] ?? [];
+                    $reserved_smoke_avail_seats = $seatData['reserved'][1] ?? [];
                 } catch (\PDOException $e) {
                     return $response->withJson($this->errorResponse($e->getMessage()), StatusCode::HTTP_BAD_REQUEST);
                 }
